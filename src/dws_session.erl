@@ -84,7 +84,6 @@ drop_session (SessionID) when is_binary (SessionID) ->
     ok.
 
 wipe_sessions () ->
-    %% TODO: remove expired/disconnected sessions
     Fun = fun () ->
                   qlc:eval (qlc:q ([ ok = mnesia:delete ({session, X#session.id})
                                      || X <- mnesia:table (session),
