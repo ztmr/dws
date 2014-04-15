@@ -24,7 +24,7 @@ ensure_session (Req) ->
 
 is_valid_session (undefined) -> false;
 is_valid_session (SessionID) ->
-    case dws_session:get_session_data (SessionID) of
+    case dws_session_server:get_session_data (SessionID) of
         {ok, _} -> true;
         {error, _} -> false
     end.
@@ -34,7 +34,7 @@ get_session (Req) ->
     SID.
 
 init_session (Req) ->
-    {ok, SID} = dws_session:create_session (),
+    {ok, SID} = dws_session_server:create_session (),
     error_logger:info_msg ("Generating a new session SID=~ts", [SID]),
     NewReq = cowboy_req:set_resp_cookie (?SESSION_COOKIE, SID, [{path, <<"/">>}], Req),
     {NewReq, SID}.

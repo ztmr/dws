@@ -15,18 +15,18 @@ init ({tcp, http}, _Req, _Opts) ->
 
 websocket_init (_TransportName, Req, _Opts) ->
     SessionID = dws_session_handler:get_session (Req),
-    {ok, Data} = dws_session:get_session_data (SessionID),
-    dws_session:set_session_data (SessionID, Data#{ history => [] }),
+    {ok, Data} = dws_session_server:get_session_data (SessionID),
+    dws_session_server:set_session_data (SessionID, Data#{ history => [] }),
     error_logger:info_msg ("Client connected: ~ts", [SessionID]),
     {ok, Req, #{ request_counter => 1 }}.
 
 websocket_handle ({text, Msg}, Req, #{ request_counter := ReqCtr } = State) ->
     SessionID = dws_session_handler:get_session (Req),
     error_logger:info_msg ("Client request: ~ts", [SessionID]),
-    {ok, #{ history := History } = Data} = dws_session:get_session_data (SessionID),
+    {ok, #{ history := History } = Data} = dws_session_server:get_session_data (SessionID),
     NewHistory = [{now (), node (), Msg}|History],
     NewData = Data#{ history => NewHistory },
-    dws_session:set_session_data (SessionID, NewData),
+    dws_session_server:set_session_data (SessionID, NewData),
     NewReqCtr = ReqCtr+1,
     JsonHist = {array, [
                         {struct,

@@ -23,5 +23,8 @@ start_link () ->
 %% ===================================================================
 
 init ([]) ->
-    {ok, { {one_for_one, 10, 10}, []} }.
+    {ok, { {one_for_one, 10, 10},
+           [
+            ?CHILD (dws_session_server, worker)
+           ]} }.
 

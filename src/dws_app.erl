@@ -18,7 +18,6 @@ start(_StartType, _StartArgs) ->
                     ]}],
     Dispatch = cowboy_router:compile (Routes),
     start_node_discovery (),
-    dws_session:init (),
     {ok, _} = cowboy:start_http (http, 100, [{port, Port}],
                                  [{env, [{dispatch, Dispatch}]},
                                   {onrequest, fun dws_session_handler:on_request/1}]),
