@@ -4,6 +4,8 @@
 -include_lib ("stdlib/include/qlc.hrl").
 
 -define (SERVER, ?MODULE).
+-define (TABLE, session).
+-define (WAIT_FOR_TABLES, 5000).
 -define (SESSION_LIFETIME, 24*60*60). %% 1day in secs
 
 -record (session, {
@@ -18,6 +20,7 @@
 
 -export ([
           start_link/0,
+
           create_session/0,
           set_session_data/2,
           get_session_data/1,
@@ -67,13 +70,7 @@ wipe_sessions () ->
 %% ------------------------------------------------------------------
 
 init (Args) ->
-    case mnesia:wait_for_tables ([session], 5000) of
-        ok ->
-            error_logger:info_msg ("Distributed session storage started...");
-        {timeout, [session]} ->
-            error_logger:info_msg ("Distributed session storage needs to be initialized!"),
-            install ()
-    end,
+    init_db (),
     {ok, Args}.
 
 handle_call ({create_session} = _Request, _From, State) ->
@@ -132,21 +129,57 @@ code_change (_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-install () ->
-    install ([node ()|nodes ()]).
-install (Nodes) ->
-    error_logger:info_msg ("Installing distributed session storage..."),
-    %% XXX: install only where it is not installed yet
-    %% since we don't want to stop/reinit Mnesia where
-    %% it is already working!!!
-    rpc:multicall (Nodes, application, stop, [mnesia]),
-    mnesia:create_schema (Nodes),
-    rpc:multicall (Nodes, application, start, [mnesia]),
-    mnesia:create_table (session,
-                         [{attributes, record_info (fields, session)},
-                          {disc_copies, Nodes}]).
-    %rpc:multicall (Nodes, application, stop, [mnesia]).
-    %rpc:multicall (Nodes, application, start, [mnesia]),
+init_db () ->
+    discover_nodes (),
+    Tables = [?TABLE],
+    Nodes = [node () | nodes ()],
+    {ok, _} = mnesia:change_config (extra_db_nodes, Nodes),
+    ok = ensure_schema (),
+    case mnesia:wait_for_tables (Tables, ?WAIT_FOR_TABLES) of
+        ok ->
+            ensure_table (mnesia:add_table_copy (?TABLE, node (), disc_copies));
+        {timeout, Tables} ->
+            Attribs = [{attributes, record_info (fields, ?TABLE)},
+                       {disc_copies, Nodes}],
+            ensure_table (mnesia:create_table (?TABLE, Attribs))
+    end.
+
+ensure_schema () ->
+    ensure_table (mnesia:change_table_copy_type (schema, node (), disc_copies)).
+
+ensure_table ({atomic, ok}) -> ok;
+ensure_table ({aborted, {already_exists, schema, _Node, disc_copies}}) -> ok;
+ensure_table ({aborted, {already_exists, session, _Node}}) -> ok.
+
+cluster_hosts () ->
+    case application:get_env (dws, cluster_hosts) of
+        undefined ->
+            [];
+        {ok, Hosts} when is_list (Hosts) ->
+            Hosts
+    end.
+
+discover_nodes () ->
+    LocalNodes = discover_nodes (net_adm:names (), "127.0.0.1"),
+    ExtraNodes = [ discover_nodes (net_adm:names (H), H)
+                   || H <- cluster_hosts () ],
+    lists:flatten ([ LocalNodes, ExtraNodes ]).
+
+discover_nodes ({error, _}, _) -> ok;
+discover_nodes ({ok, Nodes}, Host) ->
+    join_nodes (Nodes, Host).
+
+join_nodes (Nodes, Host) ->
+    join_nodes (Nodes, Host, []).
+
+join_nodes ([], _Host, Acc) -> Acc;
+join_nodes ([H|T], Host, Acc) ->
+    Result = join_node (H, Host),
+    join_nodes (T, Host, [Result|Acc]).
+
+join_node ({Name, _Port}, Host) ->
+    Node = list_to_atom (Name++"@"++Host),
+    {Node, net_kernel:connect (Node)}.
 
 is_expired (#session { created = Created }) ->
     Now = idealib_dt:now2us (),
