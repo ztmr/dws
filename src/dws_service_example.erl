@@ -1,11 +1,14 @@
 -module (dws_service_example).
 -export ([
           echo/2,
+          ping/1,
           get_system_processes/1,
           get_mnesia_info/1
          ]).
 
 echo (_SessionID, Msg) -> {ok, Msg}.
+
+ping (_SessionID) -> {ok, pong}.
 
 get_system_processes (_SessionID) ->
     {ok, {array, [
