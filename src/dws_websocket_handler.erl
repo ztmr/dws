@@ -34,7 +34,7 @@ websocket_info (_Info, Req, State) ->
 websocket_terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
     SessionID = dws_session_handler:get_session (Req),
     error_logger:info_msg ("Client [~ts] disconnected after ~w requests.",
-                           [ReqCtr, SessionID]),
+                           [SessionID, ReqCtr]),
     ok.
 
 process_request (SessionID, {struct, MsgData}, ReqInfo, State) ->
