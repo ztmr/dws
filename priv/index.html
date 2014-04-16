@@ -1,34 +1,14 @@
-<!DOCTYPE>
+<!DOCTYPE html>
 <html>
   <head>
-    <title>Hello World!</title>
+    <title>DWS demo</title>
   </head>
   <body>
-    <h1>Hello World!</h1>
-    <form onSubmit="return false;">
-      <input id="cmd" type="text" />
-      <input id="req_btn" type="submit" value="OK" />
-    </form>
-    <pre id="log"></pre>
-
-    <script type="text/javascript">
-      var debug = function (msg) {
-        var el = document.getElementById ('log');
-        el.innerHTML = '[' + (new Date ()).toString () + ']: ' + msg + '<br />' + el.innerHTML;
-      };
-      var ws = new WebSocket ('ws://'+document.location.host+'/ws');
-      ws.onopen = function (msg) {
-        debug ('Connection open!');
-        debug ('Handshake: ' + JSON.stringify (msg.data));
-      };
-      ws.onclose = function () { debug ('Connection close!'); };
-      ws.onerror = function () { debug ('Connection error!'); };
-      ws.onmessage = function (msg) {
-        debug ('Message: ' + JSON.stringify (msg.data));
-      };
-      var btn = document.getElementById ('req_btn');
-      var cmd = document.getElementById ('cmd');
-      btn.onclick = function () { ws.send (cmd.value); cmd.value = ""; return false; };
-    </script>
+    <h1>DWS demo</h1>
+    <div id="main"></div>
+    <script type="text/javascript" src="/static/JSXTransformer.js"></script>
+    <script type="text/javascript" src="/static/react.dev.js"></script>
+    <script type="text/javascript" src="/static/rpc.js"></script>
+    <script type="text/jsx" src="/static/app.js"></script>
   </body>
 </html>
