@@ -3,10 +3,13 @@
 
 -include_lib ("stdlib/include/qlc.hrl").
 
--define (SERVER, ?MODULE).
--define (TABLE, session).
--define (WAIT_FOR_TABLES, 5000).
--define (SESSION_LIFETIME, 24*60*60). %% 1day in secs
+-define (SERVER,                     ?MODULE).
+-define (TABLE,                      session).
+-define (WAIT_FOR_TABLES,               5000).
+
+%% XXX: to be moved to the system configuration
+-define (SESSION_LIFETIME,          24*60*60). %% 1d in secs
+-define (AUTOWIPE_SESSION_INTERVAL,    60*60). %% 1h in secs
 
 -record (session, {
            id = <<>> :: binary (),
@@ -45,7 +48,7 @@ start_link () ->
     gen_server:start_link ({local, ?SERVER}, ?MODULE, [], []).
 
 create_session () ->
-    gen_server:call (?SERVER, {create_session}).
+    gen_server:call (?SERVER, create_session).
 
 set_session_data (SessionID, Data) when is_list (SessionID) ->
     set_session_data (list_to_binary (SessionID), Data);
@@ -63,7 +66,7 @@ drop_session (SessionID) when is_binary (SessionID) ->
     gen_server:call (?SERVER, {drop_session, SessionID}).
 
 wipe_sessions () ->
-    gen_server:call (?SERVER, {wipe_sessions}).
+    gen_server:cast (?SERVER, wipe_sessions).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -71,9 +74,10 @@ wipe_sessions () ->
 
 init (Args) ->
     init_db (),
+    schedule_autowipe (),
     {ok, Args}.
 
-handle_call ({create_session} = _Request, _From, State) ->
+handle_call (create_session, _From, State) ->
     Id = list_to_binary (idealib_crypto:hash_hex (sha, crypto:rand_bytes (2048))),
     Fun = fun () ->
                   mnesia:write (#session { id = Id })
@@ -103,20 +107,20 @@ handle_call ({drop_session, SessionID} = _Request, _From, State) ->
                   mnesia:delete ({session, SessionID})
           end,
     {atomic, ok} = mnesia:transaction (Fun),
-    {reply, ok, State};
-handle_call ({wipe_sessions} = _Request, _From, State) ->
-    Fun = fun () ->
-                  qlc:eval (qlc:q ([ ok = mnesia:delete ({session, X#session.id})
-                                     || X <- mnesia:table (session),
-                                        is_expired (X) ]))
-          end,
-    {atomic, _} = mnesia:transaction (Fun),
     {reply, ok, State}.
 
+handle_cast (wipe_sessions, State) ->
+    spawn (fun wipe_sessions_internal/0),
+    {noreply, State};
 handle_cast (_Msg, State) ->
     {noreply, State}.
 
-handle_info (_Info, State) ->
+handle_info ({timeout, _, autowipe_sessions}, State) ->
+    wipe_sessions_internal (),
+    schedule_autowipe (),
+    {noreply, State};
+handle_info (Info, State) ->
+    error_logger:info_msg ("Received an info message: ~w", [Info]),
     {noreply, State}.
 
 terminate (_Reason, _State) ->
@@ -180,6 +184,19 @@ join_nodes ([H|T], Host, Acc) ->
 join_node ({Name, _Port}, Host) ->
     Node = list_to_atom (Name++"@"++Host),
     {Node, net_kernel:connect (Node)}.
+
+schedule_autowipe () ->
+    erlang:start_timer (?AUTOWIPE_SESSION_INTERVAL*1000, ?SERVER, autowipe_sessions).
+
+wipe_sessions_internal () ->
+    error_logger:info_msg ("Wiping session from node=~w...", [node ()]),
+    Fun = fun () ->
+                  qlc:eval (qlc:q ([ ok = mnesia:delete ({session, X#session.id})
+                                     || X <- mnesia:table (session),
+                                        is_expired (X) ]))
+          end,
+    {atomic, _} = mnesia:transaction (Fun),
+    ok.
 
 is_expired (#session { created = Created }) ->
     Now = idealib_dt:now2us (),
