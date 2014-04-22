@@ -69,7 +69,7 @@ handle_call ({create, Name, Options} = _Request, _From, State) ->
     {reply, {ok, TableID}, State}.
 
 handle_cast ({own, NewOwner, TableID} = _Request, State) ->
-    error_logger:info_msg ("~p: received ETS take-over request: ~p~n",
+    lager:info ("~p: received ETS take-over request: ~p~n",
                            [?MODULE, _Request]),
     X = case ets:info (TableID) of
         undefined ->
@@ -82,7 +82,7 @@ handle_cast ({own, NewOwner, TableID} = _Request, State) ->
     {noreply, State}.
 
 handle_info ({'ETS-TRANSFER', _Tab, _FromPid, _Context} = _Info, State) ->
-    error_logger:info_msg ("~p: received ETS ownership request: ~p~n",
+    lager:info ("~p: received ETS ownership request: ~p~n",
                            [?MODULE, _Info]),
     {noreply, State};
 handle_info (_Info, State) ->

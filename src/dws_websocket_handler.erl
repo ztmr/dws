@@ -14,12 +14,12 @@ init ({tcp, http}, _Req, _Opts) ->
 
 websocket_init (_TransportName, Req, _Opts) ->
     SessionID = dws_session_handler:get_session (Req),
-    error_logger:info_msg ("Client [~ts] connected.", [SessionID]),
+    lager:debug ("Client [~ts] connected.", [SessionID]),
     {ok, Req, #{ request_counter => 1, data => undefined }}.
 
 websocket_handle ({text, JsonMsg}, Req, #{ request_counter := ReqCtr } = State) ->
     SessionID = dws_session_handler:get_session (Req),
-    error_logger:info_msg ("Client [~ts] request: ~ts", [SessionID, JsonMsg]),
+    lager:debug ("Client [~ts] request: ~ts", [SessionID, JsonMsg]),
     %% It came from client, so let's catch a potential error
     DecodedMsg = (catch (mochijson2:decode (JsonMsg))),
     NewState0 = State#{ request_counter => ReqCtr+1 rem ?MAX_MSG_CTR },
@@ -33,8 +33,8 @@ websocket_info (_Info, Req, State) ->
 
 websocket_terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
     SessionID = dws_session_handler:get_session (Req),
-    error_logger:info_msg ("Client [~ts] disconnected after ~w requests.",
-                           [SessionID, ReqCtr]),
+    lager:debug ("Client [~ts] disconnected after ~w requests.",
+                 [SessionID, ReqCtr]),
     ok.
 
 process_request (SessionID, {struct, MsgData}, ReqInfo, State) ->

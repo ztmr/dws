@@ -78,7 +78,7 @@ handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Re
              _From, #{ handlers := Handlers,
                        services := Services } = State) ->
     ServiceState = get_service_state (Service, Services),
-    error_logger:info_msg ("SVC ~p", [{Service, Handlers}]),
+    lager:debug ("Service Call Request ~p", [{SessionID, Service, Call, Args}]),
     case maps:find (Service, Handlers) of
         {ok, Mod} ->
             {Result, NewChannelState, NewServiceState} =
@@ -113,8 +113,7 @@ handle_info ({timeout, _Ref, lazy_register_handlers}, State) ->
     lazy_register_handlers (),
     {noreply, State};
 handle_info ({'ETS-TRANSFER', Tab, _FromPid, Context} = _Info, State) ->
-    error_logger:info_msg ("~p: received ETS ownership request: ~p~n",
-                           [?MODULE, _Info]),
+    lager:info ("~p: received ETS ownership request: ~p~n", [?MODULE, _Info]),
     case Context of
         created -> ?SERVER ! lazy_register_handlers;
         reused  -> ok

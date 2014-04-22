@@ -120,7 +120,7 @@ handle_info ({timeout, _, autowipe_sessions}, State) ->
     schedule_autowipe (),
     {noreply, State};
 handle_info (Info, State) ->
-    error_logger:info_msg ("Received an info message: ~w", [Info]),
+    lager:warning ("Received an info message: ~w", [Info]),
     {noreply, State}.
 
 terminate (_Reason, _State) ->
@@ -189,7 +189,7 @@ schedule_autowipe () ->
     erlang:start_timer (?AUTOWIPE_SESSION_INTERVAL*1000, ?SERVER, autowipe_sessions).
 
 wipe_sessions_internal () ->
-    error_logger:info_msg ("Wiping session from node=~w...", [node ()]),
+    lager:info ("Wiping session from node=~w...", [node ()]),
     Fun = fun () ->
                   qlc:eval (qlc:q ([ ok = mnesia:delete ({session, X#session.id})
                                      || X <- mnesia:table (session),

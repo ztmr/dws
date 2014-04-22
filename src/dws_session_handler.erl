@@ -6,7 +6,7 @@
 on_request (Req) ->
     ensure_session (Req).
     %{Path, _} = cowboy_req:path (Req),
-    %error_logger:info_msg ("Hit => ~p", [Path]),
+    %lager:debug ("Hit => ~p", [Path]),
     %case Path of
     %    <<"/">> ->
     %        ensure_session (Req);
@@ -35,7 +35,7 @@ get_session (Req) ->
 
 init_session (Req) ->
     {ok, SID} = dws_session_server:create_session (),
-    error_logger:info_msg ("Generating a new session SID=~ts", [SID]),
+    lager:debug ("Generating a new session SID=~ts", [SID]),
     NewReq = cowboy_req:set_resp_cookie (?SESSION_COOKIE, SID, [{path, <<"/">>}], Req),
     {NewReq, SID}.
 
