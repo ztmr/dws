@@ -109,7 +109,7 @@ handle_cast (_Msg, State) ->
     {noreply, State}.
 
 
-handle_info ({timeout, _Ref, lazy_register_handlers}, State) ->
+handle_info (lazy_register_handlers, State) ->
     lazy_register_handlers (),
     {noreply, State};
 handle_info ({'ETS-TRANSFER', Tab, _FromPid, Context} = _Info, State) ->
