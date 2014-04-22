@@ -12,7 +12,7 @@
 %% ------------------------------------------------------------------
 
 -export([
-         start_link/0,
+         start_link/1,
          dispatch/4,
          add_service_handler/2,
          get_service_handlers/0,
@@ -32,8 +32,8 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link () ->
-    gen_server:start_link ({local, ?SERVER}, ?MODULE, [], []).
+start_link (Args) ->
+    gen_server:start_link ({local, ?SERVER}, ?MODULE, Args, []).
 
 -type json_struct () :: {struct, [any ()]}.
 -spec dispatch (SessionID::dws_session:session_id (),
@@ -68,10 +68,12 @@ flush_service_state (Service0) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init (Args) ->
-    lazy_register_handlers (),
-    {ok, #{ args => Args, handlers => #{}, services => #{} }}.
+init (TableOwnRequest) when is_function (TableOwnRequest, 0) ->
+    TableOwnRequest (),
+    {ok, #{ ets => undefined, handlers => #{}, services => #{} }}.
 
+handle_call (_Request, _From, #{ ets := undefined } = State) ->
+    {reply, {error, waiting_for_state}, State};
 handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Request,
              _From, #{ handlers := Handlers,
                        services := Services } = State) ->
@@ -83,7 +85,7 @@ handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Re
                 do_service_call (Mod, Call, SessionID, Args, ReqInfo, ChannelState, ServiceState),
             NewServices = maps:put (Service, NewServiceState, Services),
             NewState = State#{ services => NewServices },
-            {reply, {ok, Result, NewChannelState}, NewState};
+            {reply, {ok, Result, NewChannelState}, update_state (NewState)};
         error ->
             {reply, {ok, [{error, invalid_service}], ChannelState}, State}
     end;
@@ -97,17 +99,28 @@ handle_call ({add_service_handler, Service, Mod} = _Request,
     NewHandlers = maps:put (Service, Mod, Handlers),
     NewServices = maps:put (Service, ServiceState, Services),
     NewState = State#{ services => NewServices, handlers => NewHandlers },
-    {reply, ok, NewState};
+    {reply, ok, update_state (NewState)};
 handle_call ({flush_service_state, Service} = _Request,
              _From, #{ services := Services } = State) ->
     NewState = State#{ services => maps:put (Service, #{}, Services) },
-    {reply, ok, NewState}.
+    {reply, ok, update_state (NewState)}.
 
 handle_cast (_Msg, State) ->
     {noreply, State}.
 
-handle_info (_Info, State) ->
-    {noreply, State}.
+
+handle_info ({timeout, _Ref, lazy_register_handlers}, State) ->
+    lazy_register_handlers (),
+    {noreply, State};
+handle_info ({'ETS-TRANSFER', Tab, _FromPid, Context} = _Info, State) ->
+    error_logger:info_msg ("~p: received ETS ownership request: ~p~n",
+                           [?MODULE, _Info]),
+    case Context of
+        created -> ?SERVER ! lazy_register_handlers;
+        reused  -> ok
+    end,
+    NewState = get_state (Tab, State),
+    {noreply, NewState}.
 
 terminate (_Reason, _State) ->
     ok.
@@ -118,6 +131,19 @@ code_change (_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-define (STATE_KEY, '$gen_server_state').
+
+get_state (Tab, DefaultState) ->
+    State = case ets:lookup (Tab, ?STATE_KEY) of
+                [] -> DefaultState;
+                [{?STATE_KEY, NewState}] -> NewState
+            end,
+    maps:put (ets, Tab, State).
+
+update_state (#{ ets := Tab } = State) ->
+    true = ets:insert (Tab, {?STATE_KEY, State}),
+    State.
 
 lazy_register_handlers () ->
     spawn (fun register_handlers/0).

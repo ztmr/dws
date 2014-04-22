@@ -8,8 +8,9 @@
 -export ([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define (CHILD (I, Type),
-         {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
+-define (CHILD (I, Args, Type),
+         {I, {I, start_link, Args}, permanent, 5000, Type, [I]}).
+-define (WORKER (I, Args), ?CHILD (I, Args, worker)).
 
 %% ===================================================================
 %% API functions
@@ -23,9 +24,13 @@ start_link () ->
 %% ===================================================================
 
 init ([]) ->
-    {ok, { {one_for_one, 10, 10},
-           [
-            ?CHILD (dws_session_server, worker),
-            ?CHILD (dws_service_broker, worker)
-           ]} }.
+    MakeOwnReq = fun dws_ets_table_manager:make_own_request/1,
+    DSB_OwnReq = MakeOwnReq (dws_service_broker_state),
+    Strategy = {one_for_one, 10, 10},
+    Childs = [
+              ?WORKER (dws_ets_table_manager, []),
+              ?WORKER (dws_session_server, []),
+              ?WORKER (dws_service_broker, [DSB_OwnReq])
+             ],
+    {ok, {Strategy, Childs}}.
 
