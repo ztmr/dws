@@ -3,8 +3,12 @@
           echo/2,
           ping/1,
           get_system_processes/1,
-          get_mnesia_info/1
+          get_mnesia_info/1,
+          reveal_session_data/1
          ]).
+
+-include_lib ("stdlib/include/qlc.hrl").
+-include_lib ("dws_session.hrl").
 
 echo (_SessionID, Msg) -> {ok, Msg}.
 
@@ -31,7 +35,24 @@ get_mnesia_info (_SessionID) ->
              || {K, F} <- Props ],
     {ok, {struct, Info}}.
 
+reveal_session_data (_SessionID) ->
+    Fun = fun () ->
+                  qlc:eval (qlc:q ([ {struct,
+                                      [{id, X#session.id},
+                                       {created, now2iso (X#session.created)},
+                                       {state, x2str (X#session.state)}]}
+                                     || X <- mnesia:table (session) ]))
+          end,
+    {atomic, Sessions} = mnesia:transaction (Fun),
+    {ok, {array, Sessions}}.
+
+
 %% === Private functions ===
+
+now2iso (X) ->
+    iolist_to_binary (idealib_dt:dt2iso (idealib_dt:now2dt (X))).
+x2str (X) ->
+    iolist_to_binary (io_lib:format("~w", [X])).
 
 proc_to_list (undefined) -> null;
 proc_to_list (Pid) when is_pid (Pid) -> pid_to_list (Pid);

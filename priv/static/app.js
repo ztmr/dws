@@ -46,5 +46,50 @@ var ClusterStatus = React.createClass ({
   }
 });
 
-React.renderComponent(<ClusterStatus />, document.getElementById ('main'));
+var SessionListing = React.createClass ({
+
+  getInitialState: function () {
+    return {sessions: []};
+  },
+
+  tick: function () {
+    this.updateSessions ();
+  },
+
+  updateSessions: function () {
+    var sessionCbk = function (response) {
+      this.setState ({sessions: response.result});
+    }.bind (this);
+    RPC.call ('DWS.Example', 'reveal_session_data', null, sessionCbk);
+  },
+
+  componentWillMount: function () {
+    this.updateSessions ();
+  },
+
+  componentDidMount: function () {
+    this.interval = setInterval (this.tick, 1000);
+  },
+
+  componentWillUnmount: function () {
+    clearInterval (this.interval);
+  },
+
+  render: function () {
+    var sessions = this.state.sessions || [];
+    return (<table>
+            <tr><th>SessionID</th><th>Created</th><th>State</th></tr>
+            {sessions.map (function (s, key) {
+                return (<tr key={key}><td>{s.id}</td><td>{s.created}</td><td><code>{s.state}</code></td></tr>);
+            })}
+            </table>);
+  }
+});
+
+React.renderComponent(<div>
+                        <ClusterStatus />
+                        <br />
+                        <SessionListing />
+                      </div>,
+                      document.getElementById ('main'));
 
