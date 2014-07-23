@@ -2,6 +2,7 @@
 -behaviour (gen_server).
 
 -define (SERVER, ?MODULE).
+-define (WAITING4STATE, '$WaitingForState').
 
 %% TODO:
 %%   break the broker into the multiple separate gen_servers,
@@ -15,6 +16,7 @@
          start_link/1,
          dispatch/4,
          add_service_handler/2,
+         add_service_handler_async/2,
          get_service_handlers/0,
          flush_service_state/1
         ]).
@@ -57,6 +59,10 @@ add_service_handler (Service0, Mod) ->
     Service = ensure_binary (Service0),
     gen_server:call (?SERVER, {add_service_handler, Service, Mod}).
 
+add_service_handler_async (Service0, Mod) ->
+    Service = ensure_binary (Service0),
+    do_async_call_until_success ({add_service_handler, Service, Mod}, 500).
+
 get_service_handlers () ->
     gen_server:call (?SERVER, {get_service_handlers}).
 
@@ -73,7 +79,7 @@ init (TableOwnRequest) when is_function (TableOwnRequest, 0) ->
     {ok, #{ ets => undefined, handlers => #{}, services => #{} }}.
 
 handle_call (_Request, _From, #{ ets := undefined } = State) ->
-    {reply, {error, waiting_for_state}, State};
+    {reply, {error, ?WAITING4STATE}, State};
 handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Request,
              _From, #{ handlers := Handlers,
                        services := Services } = State) ->
@@ -191,4 +197,32 @@ ensure_binary (X) when is_atom (X) -> atom_to_binary (X, unicode).
 ensure_atom (X) when is_atom (X) -> X;
 ensure_atom (X) when is_list (X) -> list_to_atom (X);
 ensure_atom (X) when is_binary (X) -> binary_to_atom (X, unicode).
+
+do_async_call_until_success (Request, RetryTimeout) ->
+    do_async_call_until_success (Request, RetryTimeout, undefined).
+
+do_async_call_until_success (Request, RetryTimeout, CallBack) ->
+    spawn (fun () ->
+                   do_async_call_until_success_worker (Request, RetryTimeout, CallBack)
+           end),
+    ok.
+
+do_async_call_until_success_worker (Request, RetryTimeout, CallBack) ->
+    do_async_call_until_success_worker_ (whereis (?SERVER), Request, RetryTimeout, CallBack).
+
+do_async_call_until_success_worker_ (undefined, Request, RetryTimeout, CallBack) ->
+    %% The server process does not seem to exist in registry
+    %% Making gen_server:call on it would crash on `noproc' error.
+    do_async_call_until_success_worker (Request, RetryTimeout, CallBack);
+do_async_call_until_success_worker_ (Server, Request, RetryTimeout, CallBack) ->
+    %% Is the server ready to accept requests yet? Do we have to wait anymore?
+    case catch (gen_server:call (Server, Request)) of
+        {error, ?WAITING4STATE} ->
+            timer:sleep (RetryTimeout),
+            do_async_call_until_success_worker (Request, RetryTimeout, CallBack);
+        Result when is_function (CallBack, 1) ->
+            CallBack (Result);
+        _Result ->
+            ok
+    end.
 

@@ -7,8 +7,23 @@
           reveal_session_data/1
          ]).
 
+-export ([autoregister/0]).
+-on_load (autoregister/0).
+
 -include_lib ("stdlib/include/qlc.hrl").
 -include_lib ("dws_session.hrl").
+
+autoregister () ->
+    %% Note: this will happen when the module is loaded, so:
+    %%   (1) when the application starts `autoregister' will be probably called
+    %%       _before_ the `sys.config' is processed
+    %%   (2) when the application is being upgraded, the `autoregister' will most
+    %%       likely override the `sys.config' value since called later
+    NS1 = <<"DWS.Service.Example">>,  %% This would override the definition from sys.config
+    NS2 = <<"DWS.Service.Autodeploy.Example">>,  %% This would add something more
+    ok = dws_service_broker:add_service_handler_async (NS1, ?MODULE),
+    ok = dws_service_broker:add_service_handler_async (NS2, ?MODULE),
+    ok.
 
 echo (_SessionID, Msg) -> {ok, Msg}.
 
