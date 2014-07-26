@@ -37,12 +37,13 @@
 start_link (Args) ->
     gen_server:start_link ({local, ?SERVER}, ?MODULE, Args, []).
 
--type json_struct () :: {struct, [any ()]}.
+-type dws_request_object () :: {struct, [{atom (), any ()}]}.
+-type dws_response_object () :: {struct, [{atom (), any ()}]}.
 -spec dispatch (SessionID::dws_session:session_id (),
-                RequestData::proplists:proplist (),
+                RequestData::dws_request_object (),
                 RequestInfo::proplists:proplist (),
                 ChannelState::maps:map ()) ->
-                       {Result::json_struct (),
+                       {Result::dws_response_object (),
                         NewChannelState::maps:map ()}.
 dispatch (SessionID, Req, ReqInfo, #{ request_counter := ReqCtr } = ChannelState) ->
     Service = ensure_binary (proplists:get_value (<<"service">>, Req)),
