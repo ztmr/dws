@@ -8,6 +8,7 @@
 -export ([websocket_terminate/3]).
 
 -define (MAX_MSG_CTR, 9007199254740992). %% 2^53
+-define (HDR_WS_SUBPROTO, <<"sec-websocket-protocol">>).
 
 init ({tcp, http}, _Req, _Opts) ->
     {upgrade, protocol, cowboy_websocket}.
@@ -70,15 +71,14 @@ find_subprotocol_match ([H|T] = _ClientSubProtocols, ServerSubProtocols) ->
     end.
 
 negotiate_subprotocol (Req, SessionID) ->
-    case cowboy_req:parse_header (<<"sec-websocket-protocol">>, Req) of
+    case cowboy_req:parse_header (?HDR_WS_SUBPROTO, Req) of
         {ok, undefined, _Req2} ->
             {ok, Req, initialize_state ()};
         {ok, ClientSubProtocols, Req2} ->
             ServerSubprotocols = supported_subprotocol_names (),
             case find_subprotocol_match (ClientSubProtocols, ServerSubprotocols) of
                 {ok, SubProto} ->
-                    Req3 = cowboy_req:set_resp_header (<<"sec-websocket-protocol">>,
-                                                       SubProto, Req2),
+                    Req3 = cowboy_req:set_resp_header (?HDR_WS_SUBPROTO, SubProto, Req2),
                     lager:info ("Client [~ts] negotiated subprotocol: ~p.", [SessionID, SubProto]),
                     {ok, Req3, initialize_state (SubProto)};
                 {error, _} ->
