@@ -56,11 +56,11 @@ supported_subprotocol_by_name (SubProtocolName) ->
 supported_subprotocol_names () ->
     maps:keys (supported_subprotocols ()).
 
-%% XXX: add subprotocol plugin options to the `sys.config'
+%% TODO: add subprotocol plugin options to the `sys.config'
 supported_subprotocols () ->
     #{
-       <<"json">> => #{ encode => fun mochijson2:encode/1,
-                        decode => fun mochijson2:decode/1 }
+       <<"json">>     => #{ codec_module => dws_message_codec_json },
+       <<"msgpack">>  => #{ codec_module => dws_message_codec_msgpack }
      }.
 
 find_subprotocol_match ([], _ServerSubProtocols) -> {error, no_matching_subprotocols};
@@ -89,11 +89,11 @@ negotiate_subprotocol (Req, SessionID) ->
             end
     end.
 
-decode_message (RawMsg, #{ subprotocol := #{ decode := Decode } }) ->
-    catch (Decode (RawMsg)).
+decode_message (RawMsg, #{ subprotocol := #{ codec_module := Codec } }) ->
+    catch (Codec:decode (RawMsg)).
 
-encode_message (Msg, #{ subprotocol := #{ encode := Encode } }) ->
-    Encode (Msg).
+encode_message (Msg, #{ subprotocol := #{ codec_module := Codec } }) ->
+    Codec:encode (Msg).
 
 process_request (SessionID, {struct, MsgData}, ReqInfo, State) ->
     %% Looks fine, so let's process it!
