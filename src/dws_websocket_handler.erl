@@ -15,18 +15,18 @@ init ({tcp, http}, _Req, _Opts) ->
 websocket_init (_TransportName, Req, _Opts) ->
     SessionID = dws_session_handler:get_session (Req),
     lager:debug ("Client [~ts] connected.", [SessionID]),
-    {ok, Req, #{ request_counter => 1, data => undefined }}.
+    negotiate_subprotocol (Req, SessionID).
 
-websocket_handle ({text, JsonMsg}, Req, #{ request_counter := ReqCtr } = State) ->
+websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) ->
     SessionID = dws_session_handler:get_session (Req),
-    lager:debug ("Client [~ts] request: ~ts", [SessionID, JsonMsg]),
+    lager:debug ("Client [~ts] request: ~ts", [SessionID, RawMsg]),
     %% It came from client, so let's catch a potential error
-    DecodedMsg = (catch (mochijson2:decode (JsonMsg))),
+    DecodedMsg = decode_message (RawMsg, State),
     NewState0 = State#{ request_counter => ReqCtr+1 rem ?MAX_MSG_CTR },
     ReqInfo = make_cowboy_request_info (Req),
     {Response, NewState} = process_request (SessionID, DecodedMsg, ReqInfo, NewState0),
-    ResponseJson = mochijson2:encode (Response),
-    {reply, {text, ResponseJson}, Req, NewState}.
+    ResponseEncoded = encode_message (Response, State),
+    {reply, {text, ResponseEncoded}, Req, NewState}.
 
 websocket_info (_Info, Req, State) ->
     {ok, Req, State}.
@@ -37,6 +37,64 @@ websocket_terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
                  [SessionID, ReqCtr]),
     ok.
 
+
+%%======================================================================
+%% Internal functions
+%%======================================================================
+
+initialize_state () ->
+    initialize_state (hd (supported_subprotocol_names ())).
+
+initialize_state (SubProtocolName) ->
+    SubProto = supported_subprotocol_by_name (SubProtocolName),
+    #{ request_counter => 1, data => undefined, subprotocol => SubProto }.
+
+supported_subprotocol_by_name (SubProtocolName) ->
+    maps:get (SubProtocolName, supported_subprotocols ()).
+
+supported_subprotocol_names () ->
+    maps:keys (supported_subprotocols ()).
+
+%% XXX: add subprotocol plugin options to the `sys.config'
+supported_subprotocols () ->
+    #{
+       <<"json">> => #{ encode => fun mochijson2:encode/1,
+                        decode => fun mochijson2:decode/1 }
+     }.
+
+find_subprotocol_match ([], _ServerSubProtocols) -> {error, no_matching_subprotocols};
+find_subprotocol_match ([H|T] = _ClientSubProtocols, ServerSubProtocols) ->
+    case lists:member (H, ServerSubProtocols) of
+        true  -> {ok, H};
+        false -> find_subprotocol_match (T, ServerSubProtocols)
+    end.
+
+negotiate_subprotocol (Req, SessionID) ->
+    case cowboy_req:parse_header (<<"sec-websocket-protocol">>, Req) of
+        {ok, undefined, _Req2} ->
+            {ok, Req, initialize_state ()};
+        {ok, ClientSubProtocols, Req2} ->
+            ServerSubprotocols = supported_subprotocol_names (),
+            case find_subprotocol_match (ClientSubProtocols, ServerSubprotocols) of
+                {ok, SubProto} ->
+                    Req3 = cowboy_req:set_resp_header (<<"sec-websocket-protocol">>,
+                                                       SubProto, Req2),
+                    lager:info ("Client [~ts] negotiated subprotocol: ~p.", [SessionID, SubProto]),
+                    {ok, Req3, initialize_state (SubProto)};
+                {error, _} ->
+                    lager:error ("Client [~ts] subprotocol negotiation failed!", [SessionID]),
+                    lager:debug ("Client [~ts] offered subprotocols ~p while the server supports ~p.",
+                                 [ClientSubProtocols, ServerSubprotocols]),
+                    {shutdown, Req2}
+            end
+    end.
+
+decode_message (RawMsg, #{ subprotocol := #{ decode := Decode } }) ->
+    catch (Decode (RawMsg)).
+
+encode_message (Msg, #{ subprotocol := #{ encode := Encode } }) ->
+    Encode (Msg).
+
 process_request (SessionID, {struct, MsgData}, ReqInfo, State) ->
     %% Looks fine, so let's process it!
     dws_service_broker:dispatch (SessionID, MsgData, ReqInfo, State);
@@ -45,7 +103,7 @@ process_request (_SessionID, {'EXIT', _Reason}, _ReqInfo, State) ->
     {{struct, [{error, cannot_parse}]}, State};
 process_request (_SessionID, _Whatever, _ReqInfo, State) ->
     %% Message parsed, but it is not a valid request object (structure)
-    {{struct, [{error, invalid_json}]}, State}.
+    {{struct, [{error, invalid_structure}]}, State}.
 
 make_cowboy_request_info (Req) ->
     Keys = [cookies, headers, peer, host, host_info, host_url,
