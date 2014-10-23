@@ -1,0 +1,2 @@
+:otp-path "/opt/erlang_otp/r17b"
+:app-include-dirs '("include")
