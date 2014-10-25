@@ -182,7 +182,8 @@ do_service_call (Mod, Call, SessionID, Args, ReqInfo, ChannelState, ServiceState
 
 normalize_service_call_result ({ok, R, ChanState, SvcState}, _, _) -> {R, ChanState, SvcState};
 normalize_service_call_result ({ok, R, ChanState}, _, SvcState) -> {R, ChanState, SvcState};
-normalize_service_call_result ({ok, R}, ChanState, SvcState) -> {R, ChanState, SvcState}.
+normalize_service_call_result ({ok, R}, ChanState, SvcState) -> {R, ChanState, SvcState};
+normalize_service_call_result (ok, ChanState, SvcState) -> {[], ChanState, SvcState}.
 
 get_service_state (Service, Services) ->
     case maps:find (Service, Services) of
