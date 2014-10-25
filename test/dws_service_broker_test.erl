@@ -3,7 +3,10 @@
 
 -include_lib ("eunit/include/eunit.hrl").
 
-persistent_state_test () ->
+persistent_state_test_ () ->
+    {timeout, 15, ?_assertEqual (ok, persistent_state ())}.
+
+persistent_state () ->
     setup (),
     SvcID = <<"TMR.API">>,
     OrigPid = whereis (dws_service_broker),
@@ -36,8 +39,7 @@ persistent_state_test () ->
 %% ====================================================================
 
 setup () ->
-    application:ensure_all_started (dws),
-    application:stop (lager).
+    application:ensure_all_started (dws).
 
 teardown (_) ->
     application:stop (dws).
