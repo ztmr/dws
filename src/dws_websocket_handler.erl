@@ -1,11 +1,18 @@
 -module (dws_websocket_handler).
 -behaviour (cowboy_websocket_handler).
 
--export ([init/3]).
--export ([websocket_init/3]).
--export ([websocket_handle/3]).
--export ([websocket_info/3]).
--export ([websocket_terminate/3]).
+-export ([
+          init/3,
+          websocket_init/3,
+          websocket_handle/3,
+          websocket_info/3,
+          websocket_terminate/3
+         ]).
+
+-export ([
+          notify_client/2,
+          force_disconnect/1
+         ]).
 
 -define (MAX_MSG_CTR, 9007199254740992). %% 2^53
 -define (HDR_WS_SUBPROTO, <<"sec-websocket-protocol">>).
@@ -16,19 +23,28 @@ init ({tcp, http}, _Req, _Opts) ->
 websocket_init (_TransportName, Req, _Opts) ->
     SessionID = dws_session_handler:get_session (Req),
     lager:debug ("Client [~ts] connected.", [SessionID]),
+    dws_websocket_manager:register_transport (SessionID, self ()),
     negotiate_subprotocol (Req, SessionID).
 
 websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) ->
     SessionID = dws_session_handler:get_session (Req),
     lager:debug ("Client [~ts] request: ~ts", [SessionID, RawMsg]),
+    dws_websocket_manager:update_transport (self ()),
     %% It came from client, so let's catch a potential error
     DecodedMsg = decode_message (RawMsg, State),
-    NewState0 = State#{ request_counter => ReqCtr+1 rem ?MAX_MSG_CTR },
+    NewState0 = State#{
+                  request_counter => ReqCtr+1 rem ?MAX_MSG_CTR,
+                  transport_pid   => self ()
+                },
     ReqInfo = make_cowboy_request_info (Req),
     {Response, NewState} = process_request (SessionID, DecodedMsg, ReqInfo, NewState0),
     ResponseEncoded = encode_message (Response, State),
     {reply, {text, ResponseEncoded}, Req, NewState}.
 
+websocket_info ({notify_client, Msg}, Req, State) ->
+    {reply, {text, Msg}, Req, State};
+websocket_info (force_disconnect, Req, State) ->
+    {reply, close, Req, State};
 websocket_info (_Info, Req, State) ->
     {ok, Req, State}.
 
@@ -36,8 +52,15 @@ websocket_terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
     SessionID = dws_session_handler:get_session (Req),
     lager:debug ("Client [~ts] disconnected after ~w requests.",
                  [SessionID, ReqCtr]),
+    dws_websocket_manager:discard_transport (self ()),
+    dws_websocket_manager:wipe_inactive_transports (),
     ok.
 
+notify_client (WsTransportPid, Message) ->
+    WsTransportPid ! {notify_client, Message}.
+
+force_disconnect (WsTransportPid) ->
+    WsTransportPid ! force_disconnect.
 
 %%======================================================================
 %% Internal functions

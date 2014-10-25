@@ -16,6 +16,7 @@ start (_StartType, _StartArgs) ->
     {ok, _} = cowboy:start_http (dws_http, 100, [{port, Port}],
                                  [{env, [{dispatch, Dispatch}]},
                                   {onrequest, fun dws_session_handler:on_request/1}]),
+    dws_cluster_db:init (),
     dws_sup:start_link ().
 
 stop (_State) ->

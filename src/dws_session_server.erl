@@ -2,9 +2,13 @@
 -behaviour (gen_server).
 
 -include_lib ("stdlib/include/qlc.hrl").
--include_lib ("dws_session.hrl").
+-include_lib ("dws_cluster_db.hrl").
 
 -define (SERVER, ?MODULE).
+
+%% Defaults, configurable from `sys.config'
+-define (SESSION_LIFETIME,          24*60*60). %% 1d in secs
+-define (SESSION_AUTOWIPE_INTERVAL,    60*60). %% 1h in secs
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -62,29 +66,28 @@ wipe_sessions () ->
 %% ------------------------------------------------------------------
 
 init (Args) ->
-    init_db (),
     schedule_autowipe (),
     {ok, Args}.
 
 handle_call (create_session, _From, State) ->
     Id = list_to_binary (idealib_crypto:hash_hex (sha, crypto:rand_bytes (2048))),
     Fun = fun () ->
-                  mnesia:write (#session { id = Id })
+                  mnesia:write (#?TABLE_SESSION { id = Id })
           end,
     {atomic, ok} = mnesia:transaction (Fun),
     {reply, {ok, Id}, State};
 handle_call ({set_session_data, SessionID, Data} = _Request, _From, State) ->
     Fun = fun () ->
-                  mnesia:write (#session { id = SessionID, state = Data })
+                  mnesia:write (#?TABLE_SESSION { id = SessionID, state = Data })
           end,
     {atomic, ok} = mnesia:transaction (Fun),
     {reply, ok, State};
 handle_call ({get_session_data, SessionID} = _Request, _From, State) ->
     Fun = fun () ->
-                  mnesia:read ({session, SessionID})
+                  mnesia:read ({?TABLE_SESSION, SessionID})
           end,
     case mnesia:transaction (Fun) of
-        {atomic, [#session { state = Data }]} ->
+        {atomic, [#?TABLE_SESSION { state = Data }]} ->
             {reply, {ok, Data}, State};
         {atomic, []} ->
             {reply, {error, not_found}, State};
@@ -93,7 +96,7 @@ handle_call ({get_session_data, SessionID} = _Request, _From, State) ->
     end;
 handle_call ({drop_session, SessionID} = _Request, _From, State) ->
     Fun = fun () ->
-                  mnesia:delete ({session, SessionID})
+                  mnesia:delete ({?TABLE_SESSION, SessionID})
           end,
     {atomic, ok} = mnesia:transaction (Fun),
     {reply, ok, State}.
@@ -122,74 +125,29 @@ code_change (_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-init_db () ->
-    discover_nodes (),
-    Tables = [?TABLE],
-    Nodes = [node () | nodes ()],
-    {ok, _} = mnesia:change_config (extra_db_nodes, Nodes),
-    ok = ensure_schema (),
-    case mnesia:wait_for_tables (Tables, ?WAIT_FOR_TABLES) of
-        ok ->
-            ensure_table (mnesia:add_table_copy (?TABLE, node (), disc_copies));
-        {timeout, Tables} ->
-            Attribs = [{attributes, record_info (fields, ?TABLE)},
-                       {disc_copies, Nodes}],
-            ensure_table (mnesia:create_table (?TABLE, Attribs))
-    end.
-
-ensure_schema () ->
-    ensure_table (mnesia:change_table_copy_type (schema, node (), disc_copies)).
-
-ensure_table ({atomic, ok}) -> ok;
-ensure_table ({aborted, {already_exists, schema, _Node, disc_copies}}) -> ok;
-ensure_table ({aborted, {already_exists, session, _Node}}) -> ok.
-
-cluster_hosts () ->
-    case application:get_env (dws, cluster_hosts) of
-        undefined ->
-            [];
-        {ok, Hosts} when is_list (Hosts) ->
-            Hosts
-    end.
-
-discover_nodes () ->
-    LocalNodes = discover_nodes (net_adm:names (), "127.0.0.1"),
-    ExtraNodes = [ discover_nodes (net_adm:names (H), H)
-                   || H <- cluster_hosts () ],
-    lists:flatten ([ LocalNodes, ExtraNodes ]).
-
-discover_nodes ({error, _}, _) -> ok;
-discover_nodes ({ok, Nodes}, Host) ->
-    join_nodes (Nodes, Host).
-
-join_nodes (Nodes, Host) ->
-    join_nodes (Nodes, Host, []).
-
-join_nodes ([], _Host, Acc) -> Acc;
-join_nodes ([H|T], Host, Acc) ->
-    Result = join_node (H, Host),
-    join_nodes (T, Host, [Result|Acc]).
-
-join_node ({Name, _Port}, Host) ->
-    Node = list_to_atom (Name++"@"++Host),
-    {Node, net_kernel:connect (Node)}.
-
 schedule_autowipe () ->
-    erlang:start_timer (?AUTOWIPE_SESSION_INTERVAL*1000, ?SERVER, autowipe_sessions).
+    erlang:start_timer (get_session_autowipe_interval () * 1000,
+                        ?SERVER, autowipe_sessions).
 
 wipe_sessions_internal () ->
     lager:info ("Wiping session from node=~w...", [node ()]),
     Fun = fun () ->
-                  qlc:eval (qlc:q ([ ok = mnesia:delete ({session, X#session.id})
-                                     || X <- mnesia:table (session),
+                  qlc:eval (qlc:q ([ ok = mnesia:delete ({?TABLE_SESSION, X#?TABLE_SESSION.id})
+                                     || X <- mnesia:table (?TABLE_SESSION),
                                         is_expired (X) ]))
           end,
     {atomic, _} = mnesia:transaction (Fun),
     ok.
 
-is_expired (#session { created = Created }) ->
+get_session_ttl () ->
+    application:get_env (dws, session_lifetime, ?SESSION_LIFETIME).
+
+get_session_autowipe_interval () ->
+    application:get_env (dws, session_autowipe_interval, ?SESSION_AUTOWIPE_INTERVAL).
+
+is_expired (#?TABLE_SESSION { created = Created }) ->
     Now = idealib_dt:now2us (),
-    Ttl = idealib_dt:sec2us (?SESSION_LIFETIME),
+    Ttl = idealib_dt:sec2us (get_session_ttl ()),
     Expiry = idealib_dt:now2us (Created) + Ttl,
     Expiry < Now.
 
