@@ -23,7 +23,7 @@
 
 -record (?TABLE_LOCK, {
            id = <<>> :: binary (),
-           session_id = <<>> :: binary (),
+           owner_pid = self () :: pid (),
            created = now ()
           }).
 

@@ -3,8 +3,7 @@
 -include_lib ("dws_cluster_db.hrl").
 
 -export ([
-          init/0,
-          update_lock_table/2
+          init/0
          ]).
 
 %% This must be a macro because Erlang records
@@ -32,16 +31,6 @@ init () ->
             ok = ?CREATE_TABLE (?TABLE_SOCKET, Nodes, ram_copies),
             ok = ?CREATE_TABLE (?TABLE_LOCK, Nodes, ram_copies)
     end.
-
-update_lock_table (SessionID, Resource) ->
-    Fun = fun () ->
-                  mnesia:write (#?TABLE_LOCK {
-                                    session_id = SessionID,
-                                    id = Resource
-                                   })
-          end,
-    {atomic, ok} = mnesia:transaction (Fun),
-    ok.
 
 %% --- Internal functions ---
 
