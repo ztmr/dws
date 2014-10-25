@@ -5,14 +5,6 @@
 
 on_request (Req) ->
     ensure_session (Req).
-    %{Path, _} = cowboy_req:path (Req),
-    %lager:debug ("Hit => ~p", [Path]),
-    %case Path of
-    %    <<"/">> ->
-    %        ensure_session (Req);
-    %    _ ->
-    %        Req
-    %end.
 
 ensure_session (Req) ->
     case is_valid_session (get_session (Req)) of
