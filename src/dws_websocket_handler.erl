@@ -42,7 +42,8 @@ websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) -
     {reply, {text, ResponseEncoded}, Req, NewState}.
 
 websocket_info ({notify_client, Msg}, Req, State) ->
-    {reply, {text, Msg}, Req, State};
+    EncodedMsg = encode_message (Msg, State),
+    {reply, {text, EncodedMsg}, Req, State};
 websocket_info (force_disconnect, Req, State) ->
     {reply, close, Req, State};
 websocket_info (_Info, Req, State) ->
@@ -57,10 +58,12 @@ websocket_terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
     ok.
 
 notify_client (WsTransportPid, Message) ->
-    WsTransportPid ! {notify_client, Message}.
+    WsTransportPid ! {notify_client, Message},
+    ok.
 
 force_disconnect (WsTransportPid) ->
-    WsTransportPid ! force_disconnect.
+    WsTransportPid ! force_disconnect,
+    ok.
 
 %%======================================================================
 %% Internal functions

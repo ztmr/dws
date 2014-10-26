@@ -15,6 +15,7 @@
 -export([
          start_link/1,
          dispatch/4,
+         notify_client/3,
          add_service_handler/2,
          add_service_handler_async/2,
          get_service_handlers/0,
@@ -53,8 +54,16 @@ dispatch (SessionID, Req, ReqInfo, #{ request_counter := ReqCtr } = ChannelState
     {ok, Result, NewChannelState} =
         gen_server:call (?SERVER, {call, SessionID, Service, Call,
                                    Args, ReqInfo, ChannelState}),
-    Resp = {struct, [{id, Id}, {result, Result}]},
+    Resp = {struct, [{id, Id}, {type, <<"rpc">>}, {result, Result}]},
     {Resp, NewChannelState}.
+
+notify_client (WsTransportId, MsgBody, EventClass) ->
+    Msg = {struct, [
+                    {type, <<"event">>},
+                    {class, EventClass},
+                    {data, MsgBody}
+                   ]},
+    dws_websocket_handler:notify_client (WsTransportId, Msg).
 
 add_service_handler (Service0, Mod) ->
     Service = ensure_binary (Service0),
