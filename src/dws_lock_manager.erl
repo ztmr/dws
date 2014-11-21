@@ -7,7 +7,8 @@
           wipe_dead_locks/0
          ]).
 
-%% XXX: do we need to convert it to the gen_server?
+%% TODO: - convert it to gen_server
+%%       - monitor the WsTransportPID and discard its socket if it dies
 
 -include_lib ("stdlib/include/qlc.hrl").
 -include_lib ("dws_cluster_db.hrl").
