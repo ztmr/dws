@@ -37,10 +37,26 @@ init () ->
 ensure_schema () ->
     ensure_table (mnesia:change_table_copy_type (schema, node (), disc_copies)).
 
+%% Just created and loaded
 ensure_table ({atomic, ok}) -> ok;
-ensure_table ({aborted, {already_exists, _Table, _Node, _Storage}}) -> ok;
-ensure_table ({aborted, {already_exists, _Table, _Node}}) -> ok;
-ensure_table ({aborted, {already_exists, _Table}}) -> ok.
+
+%% Maybe loaded, check if we need to load it by force
+ensure_table ({aborted, {already_exists, Table}}) ->
+    ensure_table ({aborted, {already_exists, Table, node ()}});
+ensure_table ({aborted, {already_exists, Table, Node}}) ->
+    ensure_table ({aborted, {already_exists, Table, Node, ram_copies}});
+ensure_table ({aborted, {already_exists, Table, _Node, _Storage}}) ->
+    %% Table exists, but still have no active replicas?
+    %% That sounds like an after-crash issue, let's load it by force...
+    %% Otherwise we would get `no_exists' error when trying to read them!
+    case mnesia:table_info (Table, active_replicas) of
+        [] ->
+            lager:warning ("Force loading Mnesia table `~s'...", [Table]),
+            yes = mnesia:force_load_table (Table),
+            ok;
+        _  ->
+            ok
+    end.
 
 cluster_hosts () ->
     case application:get_env (dws, cluster_hosts) of
