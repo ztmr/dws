@@ -47,15 +47,18 @@ start_link (Args) ->
                        {Result::dws_response_object (),
                         NewChannelState::maps:map ()}.
 dispatch (SessionID, Req, ReqInfo, #{ request_counter := ReqCtr } = ChannelState) ->
-    Service = ensure_binary (proplists:get_value (<<"service">>, Req)),
-    Call = ensure_atom (proplists:get_value (<<"call">>, Req)),
-    Args = proplists:get_value (<<"args">>, Req, null),
-    Id = ensure_binary (proplists:get_value (<<"id">>, Req, ReqCtr)),
-    {ok, Result, NewChannelState} =
-        gen_server:call (?SERVER, {call, SessionID, Service, Call,
-                                   Args, ReqInfo, ChannelState}),
-    Resp = {struct, [{id, Id}, {type, <<"rpc">>}, {result, Result}]},
-    {Resp, NewChannelState}.
+    case parse_request (Req, ReqCtr) of
+        {ok, ProtoVsn, MsgId, Service, Call, Args} ->
+            {ok, Result, NewChannelState} =
+                gen_server:call (?SERVER, {call, SessionID, Service, Call,
+                                           Args, ReqInfo, ChannelState}),
+            Resp = format_response (ProtoVsn, MsgId, Result),
+            {Resp, NewChannelState};
+        {error, ProtoVsn, MsgId, Error} ->
+            lager:debug ("Malformed client request: ~w", [{ProtoVsn, MsgId, Error}]),
+            Resp = format_response (ProtoVsn, MsgId, [Error]),
+            {Resp, ChannelState}
+    end.
 
 notify_client (WsTransportId, MsgBody, EventClass) ->
     Msg = {struct, [
@@ -208,6 +211,39 @@ ensure_binary (X) when is_atom (X) -> atom_to_binary (X, unicode).
 ensure_atom (X) when is_atom (X) -> X;
 ensure_atom (X) when is_list (X) -> list_to_atom (X);
 ensure_atom (X) when is_binary (X) -> binary_to_atom (X, unicode).
+
+format_response (_ProtoVsn, MsgId, Result) ->
+    %% Protocols V1 and V2 are compatible when it comes to response
+    {struct, [{id, MsgId}, {type, <<"rpc">>}, {result, Result}]}.
+
+parse_request (Req, ReqCtr) ->
+    ProtoVsn = idealib_conv:x2int0 (proplists:get_value (<<"proto">>, Req, 0)),
+    parse_request_proto (ProtoVsn, Req, ReqCtr).
+
+parse_request_proto (0, Req, ReqCtr) ->
+    %% The legacy protocol was not versioned originally
+    parse_request_proto (1, Req, ReqCtr);
+parse_request_proto (1 = ProtoVsn, Req, ReqCtr) ->
+    %% The legacy protocol is marked as protocol V1
+    MsgId = ensure_binary (proplists:get_value (<<"id">>, Req, ReqCtr)),
+    %% NOTE: ONLY cmd='call' is supported, let's crash on anything else!
+    case ensure_binary (proplists:get_value (<<"cmd">>, Req)) of
+        <<"call">> ->
+            Service = ensure_binary (proplists:get_value (<<"ns">>, Req)),
+            Call = ensure_atom (proplists:get_value (<<"method">>, Req)),
+            Args = proplists:get_value (<<"args">>, Req, null),
+            {ok, ProtoVsn, MsgId, Service, Call, Args};
+        Cmd ->
+            {error, ProtoVsn, MsgId, {unsupported_legacy_command, Cmd}}
+    end;
+parse_request_proto (ProtoVsn, Req, ReqCtr) when ProtoVsn > 1 ->
+    %% The only known protocol newer than the V1 is V2 so use it if
+    %% the version number higher than 1 was supplied by the client
+    Service = ensure_binary (proplists:get_value (<<"service">>, Req)),
+    Call = ensure_atom (proplists:get_value (<<"call">>, Req)),
+    Args = proplists:get_value (<<"args">>, Req, null),
+    MsgId = ensure_binary (proplists:get_value (<<"id">>, Req, ReqCtr)),
+    {ok, ProtoVsn, MsgId, Service, Call, Args}.
 
 do_async_call_until_success (Request, RetryTimeout) ->
     do_async_call_until_success (Request, RetryTimeout, undefined).
