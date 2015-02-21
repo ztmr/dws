@@ -56,7 +56,7 @@ dispatch (SessionID, Req, ReqInfo, #{ request_counter := ReqCtr } = ChannelState
             {Resp, NewChannelState};
         {error, ProtoVsn, MsgId, Error} ->
             lager:debug ("Malformed client request: ~w", [{ProtoVsn, MsgId, Error}]),
-            Resp = format_response (ProtoVsn, MsgId, [Error]),
+            Resp = format_response (ProtoVsn, MsgId, {error, [Error]}),
             {Resp, ChannelState}
     end.
 
@@ -192,10 +192,13 @@ do_service_call (Mod, Call, SessionID, Args, ReqInfo, ChannelState, ServiceState
             N (Mod:Call (SessionID))
     end.
 
-normalize_service_call_result ({ok, R, ChanState, SvcState}, _, _) -> {R, ChanState, SvcState};
-normalize_service_call_result ({ok, R, ChanState}, _, SvcState) -> {R, ChanState, SvcState};
-normalize_service_call_result ({ok, R}, ChanState, SvcState) -> {R, ChanState, SvcState};
-normalize_service_call_result (ok, ChanState, SvcState) -> {[], ChanState, SvcState}.
+normalize_service_call_result (ok, ChanState, SvcState) -> {{ok, []}, ChanState, SvcState};
+normalize_service_call_result ({ok, R, ChanState, SvcState}, _, _) -> {{ok, R}, ChanState, SvcState};
+normalize_service_call_result ({ok, R, ChanState}, _, SvcState) -> {{ok, R}, ChanState, SvcState};
+normalize_service_call_result ({ok, R}, ChanState, SvcState) -> {{ok, R}, ChanState, SvcState};
+normalize_service_call_result ({error, R, ChanState, SvcState}, _, _) -> {{error, R}, ChanState, SvcState};
+normalize_service_call_result ({error, R, ChanState}, _, SvcState) -> {{error, R}, ChanState, SvcState};
+normalize_service_call_result ({error, R}, ChanState, SvcState) -> {{error, R}, ChanState, SvcState}.
 
 get_service_state (Service, Services) ->
     case maps:find (Service, Services) of
@@ -212,9 +215,11 @@ ensure_atom (X) when is_atom (X) -> X;
 ensure_atom (X) when is_list (X) -> list_to_atom (X);
 ensure_atom (X) when is_binary (X) -> binary_to_atom (X, unicode).
 
-format_response (_ProtoVsn, MsgId, Result) ->
-    %% Protocols V1 and V2 are compatible when it comes to response
-    {struct, [{id, MsgId}, {type, <<"rpc">>}, {result, Result}]}.
+%% Protocols V1 and V2 are compatible when it comes to response
+format_response (_ProtoVsn, MsgId, {ok, Result}) ->
+    {struct, [{id, MsgId}, {type, <<"rpc">>}, {success, true}, {result, Result}]};
+format_response (_ProtoVsn, MsgId, {error, Reason}) ->
+    {struct, [{id, MsgId}, {type, <<"rpc">>}, {success, false}, {reason, Reason}]}.
 
 parse_request (Req, ReqCtr) ->
     ProtoVsn = idealib_conv:x2int0 (proplists:get_value (<<"proto">>, Req, 0)),
