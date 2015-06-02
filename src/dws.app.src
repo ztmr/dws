@@ -13,7 +13,6 @@
                  ]},
   {mod, { dws_app, []}},
   {env, [
-         {listen_port, 8080},
          {routes, [
                    {'_', [
                           %{"/", cowboy_static, {priv_file, ?APP, "index.html"}},
