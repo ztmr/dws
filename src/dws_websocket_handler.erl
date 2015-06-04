@@ -2,11 +2,10 @@
 -behaviour (cowboy_websocket_handler).
 
 -export ([
-          init/3,
-          websocket_init/3,
+          init/2,
           websocket_handle/3,
           websocket_info/3,
-          websocket_terminate/3
+          terminate/3
          ]).
 
 -export ([
@@ -17,10 +16,7 @@
 -define (MAX_MSG_CTR, 9007199254740992). %% 2^53
 -define (HDR_WS_SUBPROTO, <<"sec-websocket-protocol">>).
 
-init ({tcp, http}, _Req, _Opts) ->
-    {upgrade, protocol, cowboy_websocket}.
-
-websocket_init (_TransportName, Req, _Opts) ->
+init (Req, _Opts) ->
     SessionID = dws_session_handler:get_session (Req),
     lager:debug ("Client [~ts] connected.", [SessionID]),
     dws_websocket_manager:register_transport (SessionID, self ()),
@@ -49,13 +45,14 @@ websocket_info (force_disconnect, Req, State) ->
 websocket_info (_Info, Req, State) ->
     {ok, Req, State}.
 
-websocket_terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
+terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
     SessionID = dws_session_handler:get_session (Req),
     lager:debug ("Client [~ts] disconnected after ~w requests.",
                  [SessionID, ReqCtr]),
     dws_websocket_manager:discard_transport (self ()),
     dws_websocket_manager:wipe_inactive_transports (),
-    ok.
+    ok;
+terminate (_, _, _) -> ok.
 
 notify_client (WsTransportPid, Message) ->
     WsTransportPid ! {notify_client, Message},
@@ -97,21 +94,21 @@ find_subprotocol_match ([H|T] = _ClientSubProtocols, ServerSubProtocols) ->
     end.
 
 negotiate_subprotocol (Req, SessionID) ->
-    case cowboy_req:parse_header (?HDR_WS_SUBPROTO, Req) of
-        {ok, undefined, _Req2} ->
-            {ok, Req, initialize_state ()};
-        {ok, ClientSubProtocols, Req2} ->
+    case cowboy_req:parse_header (?HDR_WS_SUBPROTO, Req, undefined) of
+        undefined ->
+            {cowboy_websocket, Req, initialize_state ()};
+        ClientSubProtocols ->
             ServerSubprotocols = supported_subprotocol_names (),
             case find_subprotocol_match (ClientSubProtocols, ServerSubprotocols) of
                 {ok, SubProto} ->
-                    Req3 = cowboy_req:set_resp_header (?HDR_WS_SUBPROTO, SubProto, Req2),
+                    Req2 = cowboy_req:set_resp_header (?HDR_WS_SUBPROTO, SubProto, Req),
                     lager:info ("Client [~ts] negotiated subprotocol: ~p.", [SessionID, SubProto]),
-                    {ok, Req3, initialize_state (SubProto)};
+                    {cowboy_websocket, Req2, initialize_state (SubProto)};
                 {error, _} ->
                     lager:error ("Client [~ts] subprotocol negotiation failed!", [SessionID]),
                     lager:debug ("Client [~ts] offered subprotocols ~p while the server supports ~p.",
                                  [ClientSubProtocols, ServerSubprotocols]),
-                    {shutdown, Req2}
+                    {shutdown, Req}
             end
     end.
 
@@ -119,7 +116,7 @@ decode_message (RawMsg, #{ subprotocol := #{ codec_module := Codec } }) ->
     catch (Codec:decode (RawMsg)).
 
 encode_message (Msg, #{ subprotocol := #{ codec_module := Codec } }) ->
-    Codec:encode (Msg).
+    iolist_to_binary (Codec:encode (Msg)).
 
 process_request (SessionID, {struct, MsgData}, ReqInfo, State) ->
     %% Looks fine, so let's process it!
@@ -132,9 +129,13 @@ process_request (_SessionID, _Whatever, _ReqInfo, State) ->
     {{struct, [{error, invalid_structure}]}, State}.
 
 make_cowboy_request_info (Req) ->
-    Keys = [cookies, headers, peer, host, host_info, host_url,
-            method, path, path_info, port, qs, qs_vals, url,
+    Keys = [bindings, {parse_cookies, cookies},
+            headers, peer, host, host_info, host_url,
+            method, path, path_info, port, qs, url,
             version],
-    Get = fun (M, R) -> element (1, cowboy_req:M (R)) end,
-    maps:from_list ([ {Key, Get (Key, Req)} || Key <- Keys ]).
+    Get = fun
+              ({M0, M1}, R) -> {M1, cowboy_req:M0 (R)};
+              (M, R) -> {M, cowboy_req:M (R)}
+          end,
+    maps:from_list ([ Get (Key, Req) || Key <- Keys ]).
 

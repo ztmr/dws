@@ -1,7 +1,7 @@
 -module (dws_session_handler).
 -export ([on_request/1, get_session/1, discard_session/1]).
 
--define (SESSION_COOKIE, <<"%dwsid">>).
+-define (SESSION_COOKIE, '%dwsid').
 
 on_request (Req) ->
     ensure_session (Req).
@@ -22,7 +22,7 @@ is_valid_session (SessionID) ->
     end.
 
 get_session (Req) ->
-    {SID, _} = cowboy_req:cookie (?SESSION_COOKIE, Req),
+    #{ ?SESSION_COOKIE := SID } = cowboy_req:match_cookies ([{?SESSION_COOKIE, [], undefined}], Req),
     SID.
 
 init_session (Req) ->
