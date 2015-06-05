@@ -71,5 +71,9 @@ wipe_inactive_transports () ->
     ok.
 
 is_transport_alive (WsTransportPid) ->
-    process_info (WsTransportPid) =/= undefined.
+    try
+        process_info (WsTransportPid) =/= undefined
+    catch
+        _:_ -> false
+    end.
 
