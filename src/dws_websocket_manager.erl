@@ -5,7 +5,10 @@
           find_all_transports/0,
           find_transport/1,
           discard_transport/1,
-          wipe_inactive_transports/0
+          wipe_inactive_transports/0,
+
+          entry_to_map/1,
+          entry_to_list/1
          ]).
 
 %% TODO: - convert it to gen_server
@@ -69,6 +72,27 @@ wipe_inactive_transports () ->
           end,
     {atomic, _} = mnesia:transaction (Fun),
     ok.
+
+entry_to_map (#?TABLE_SOCKET
+              {
+                id = ID,
+                session_id = SessionID,
+                created = Created,
+                last_used = LastUsed,
+                node = Node
+              } = _Entry) ->
+    #{
+       id => ID,
+       session_id => SessionID,
+       created => Created,
+       last_used => LastUsed,
+       node => Node
+     }.
+
+entry_to_list (#?TABLE_SOCKET {} = Entry) ->
+    maps:to_list (entry_to_map (Entry)).
+
+%% =========
 
 is_transport_alive (WsTransportPid) ->
     try

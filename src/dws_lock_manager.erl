@@ -4,7 +4,10 @@
           release_lock/1,
           find_lock/1,
           find_all_locks/0,
-          wipe_dead_locks/0
+          wipe_dead_locks/0,
+
+          entry_to_map/1,
+          entry_to_list/1
          ]).
 
 %% TODO: - convert it to gen_server
@@ -59,6 +62,22 @@ wipe_dead_locks () ->
           end,
     {atomic, _} = mnesia:transaction (Fun),
     ok.
+
+entry_to_map (#?TABLE_LOCK
+              {
+                id = ID,
+                owner_pid = OwnerPID,
+                created = Created
+              } = _Entry) ->
+    #{
+       id => ID,
+       owner_pid => OwnerPID,
+       created => Created
+     }.
+
+entry_to_list (#?TABLE_LOCK {} = Entry) ->
+    maps:to_list (entry_to_map (Entry)).
+
 
 %% --- Private internal functions ---
 
