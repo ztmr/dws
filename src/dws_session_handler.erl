@@ -4,6 +4,7 @@
 -export ([execute/2]).
 -export ([on_request/1, get_session/1, discard_session/1]).
 
+-define (APP, dws).
 -define (SESSION_COOKIE, '%dwsid').
 -define (REQ_META_KEY_SID, '%dws_session_id').
 
@@ -43,7 +44,13 @@ is_valid_session (SessionID) ->
 init_session (Req) ->
     {ok, SID} = dws_session_server:create_session (),
     lager:debug ("Generating a new session SID=~ts", [SID]),
-    NewReq0 = cowboy_req:set_resp_cookie (atom_to_list (?SESSION_COOKIE), SID, [{path, <<"/">>}], Req),
+    Config = application:get_env (?APP, session, []),
+    Opts = [
+            {path,      <<"/">>},
+            {secure,    idealib_conv:x2bool0 (proplists:get_value (secure_only, Config))},
+            {http_only, idealib_conv:x2bool0 (proplists:get_value (http_only,   Config))}
+           ],
+    NewReq0 = cowboy_req:set_resp_cookie (atom_to_list (?SESSION_COOKIE), SID, Opts, Req),
     NewReq1 = cowboy_req:set_meta (?REQ_META_KEY_SID, SID, NewReq0),
     {NewReq1, SID}.
 
