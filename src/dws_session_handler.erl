@@ -1,17 +1,36 @@
 -module (dws_session_handler).
+-behaviour (cowboy_middleware).
+
+-export ([execute/2]).
 -export ([on_request/1, get_session/1, discard_session/1]).
 
 -define (SESSION_COOKIE, '%dwsid').
+-define (REQ_META_KEY_SID, '%dws_session_id').
 
+%% Middleware callback
+execute (Req, Env) ->
+    {NewReq, SessionID} = ensure_session (Req),
+    NewEnv = [{session_id, SessionID}|Env],
+    {ok, NewReq, NewEnv}.
+
+%% Former Cowboy OnRequest handler
 on_request (Req) ->
-    ensure_session (Req).
+    {NewReq, _SessionID} = ensure_session (Req),
+    NewReq.
 
 ensure_session (Req) ->
-    case is_valid_session (get_session (Req)) of
-        true -> Req;
-        false ->
-            {NewReq, _} = init_session (Req),
-            NewReq
+    case get_session (Req) of
+        undefined ->
+            init_session (Req);
+        SID ->
+            {cowboy_req:set_meta (?REQ_META_KEY_SID, SID, Req), SID}
+    end.
+
+get_session (Req) ->
+    #{ ?SESSION_COOKIE := SID } = cowboy_req:match_cookies ([{?SESSION_COOKIE, [], undefined}], Req),
+    case is_valid_session (SID) of
+        true  -> SID;
+        false -> cowboy_req:meta (?REQ_META_KEY_SID, Req)
     end.
 
 is_valid_session (undefined) -> false;
@@ -21,18 +40,16 @@ is_valid_session (SessionID) ->
         {error, _} -> false
     end.
 
-get_session (Req) ->
-    #{ ?SESSION_COOKIE := SID } = cowboy_req:match_cookies ([{?SESSION_COOKIE, [], undefined}], Req),
-    SID.
-
 init_session (Req) ->
     {ok, SID} = dws_session_server:create_session (),
     lager:debug ("Generating a new session SID=~ts", [SID]),
-    NewReq = cowboy_req:set_resp_cookie (?SESSION_COOKIE, SID, [{path, <<"/">>}], Req),
-    {NewReq, SID}.
+    NewReq0 = cowboy_req:set_resp_cookie (atom_to_list (?SESSION_COOKIE), SID, [{path, <<"/">>}], Req),
+    NewReq1 = cowboy_req:set_meta (?REQ_META_KEY_SID, SID, NewReq0),
+    {NewReq1, SID}.
 
 discard_session (Req) ->
-    SessionCookie = list_to_binary ([ ?SESSION_COOKIE,
+    SessionCookie = list_to_binary ([ atom_to_list (?SESSION_COOKIE),
                                       <<"=deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT; path=/">>]),
-    cowboy_req:set_resp_header (<<"Set-Cookie">>, SessionCookie, Req).
+    NewReq0 = cowboy_req:set_resp_header (<<"Set-Cookie">>, SessionCookie, Req),
+    cowboy_req:set_meta (?REQ_META_KEY_SID, undefined, NewReq0).
 
