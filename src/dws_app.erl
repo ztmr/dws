@@ -42,11 +42,21 @@ start_https (Dispatch) ->
 start_listener (http, Dispatch, Opts) ->
     {ok, _} = cowboy:start_http (dws_http, 100, Opts,
                                  [{env, [{dispatch, Dispatch}]},
-                                  {middlewares, [cowboy_router, dws_session_handler, cowboy_handler]}]);
+                                  {middlewares, [cowboy_router, dws_session_handler, cowboy_handler]},
+                                  {onresponse, get_response_handler ()}]);
 start_listener (https, Dispatch, Opts) ->
     {ok, _} = cowboy:start_https (dws_https, 100, Opts,
                                   [{env, [{dispatch, Dispatch}]},
-                                   {middlewares, [cowboy_router, dws_session_handler, cowboy_handler]}]).
+                                   {middlewares, [cowboy_router, dws_session_handler, cowboy_handler]},
+                                   {onresponse, get_response_handler ()}]).
+
+get_response_handler () ->
+    case application:get_env (?APP, http_onresponse) of
+        {ok, {Module, Function}} ->
+            fun Module:Function/4;
+        _ ->
+            undefined
+    end.
 
 stop (_State) ->
     cowboy:stop_listener (dws_http),
