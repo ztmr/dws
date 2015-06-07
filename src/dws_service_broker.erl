@@ -72,7 +72,10 @@ add_service_handler (Service0, Mod) ->
     Service = ensure_binary (Service0),
     gen_server:call (?SERVER, {add_service_handler, Service, Mod}).
 
-add_service_handler_async (Service0, Mod) ->
+add_service_handler_async (Services, Mod) when is_list (Services), is_atom (Mod) ->
+    [ add_service_handler_async (S, Mod) || S <- Services ],
+    ok;
+add_service_handler_async (Service0, Mod) when is_binary (Service0), is_atom (Mod) ->
     Service = ensure_binary (Service0),
     do_async_call_until_success ({add_service_handler, Service, Mod}, 500).
 
