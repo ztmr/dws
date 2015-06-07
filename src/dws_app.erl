@@ -2,7 +2,7 @@
 -behaviour (application).
 
 %% Application callbacks
--export ([start/2, stop/1]).
+-export ([start/2, stop/1, reload_routes/0]).
 
 -define (APP, dws).
 
@@ -57,6 +57,34 @@ get_response_handler () ->
         _ ->
             undefined
     end.
+
+is_valid_file (File) ->
+    filelib:is_file (File) andalso not filelib:is_dir (File).
+
+find_config_file () ->
+    Config = proplists:get_value (config, init:get_arguments (), "sys"),
+    case is_valid_file (Config) of
+        true ->
+            {ok, Config};
+        false ->
+            Config1 = Config ++ ".config",
+            case is_valid_file (Config1) of
+                true ->
+                    {ok, Config1};
+                false ->
+                    error
+            end
+    end.
+
+reload_routes () ->
+    {ok, ConfigFile} = find_config_file (),
+    {ok, [Config]} = file:consult (ConfigFile),
+    DWSConfig = proplists:get_value (dws, Config),
+    Routes = proplists:get_value (routes, DWSConfig),
+    Dispatch = cowboy_router:compile (Routes),
+    [ catch (cowboy:set_env (Listener, dispatch, Dispatch))
+      || Listener <- [dws_http, dws_https] ],
+    ok.
 
 stop (_State) ->
     cowboy:stop_listener (dws_http),
