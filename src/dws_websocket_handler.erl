@@ -35,6 +35,7 @@ websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) -
     ReqInfo = make_cowboy_request_info (Req),
     {Response, NewState} = process_request (SessionID, DecodedMsg, ReqInfo, NewState0),
     ResponseEncoded = encode_message (Response, State),
+    lager:debug ("Client [~ts] response: ~ts", [SessionID, ResponseEncoded]),
     {reply, {text, ResponseEncoded}, Req, NewState}.
 
 websocket_info ({notify_client, Msg}, Req, State) ->
