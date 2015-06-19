@@ -24,6 +24,10 @@
           wipe_sessions/0
          ]).
 
+-export ([ %% Internal, but useful to have it exported
+          get_session_ttl/0
+         ]).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -140,10 +144,12 @@ wipe_sessions_internal () ->
     ok.
 
 get_session_ttl () ->
-    application:get_env (dws, session_lifetime, ?SESSION_LIFETIME).
+    T = application:get_env (dws, session_lifetime, ?SESSION_LIFETIME),
+    idealib_conv:x2int0 (T).
 
 get_session_autowipe_interval () ->
-    application:get_env (dws, session_autowipe_interval, ?SESSION_AUTOWIPE_INTERVAL).
+    T = application:get_env (dws, session_autowipe_interval, ?SESSION_AUTOWIPE_INTERVAL),
+    idealib_conv:x2int0 (T).
 
 is_expired (#?TABLE_SESSION { created = Created }) ->
     Now = idealib_dt:now2us (),

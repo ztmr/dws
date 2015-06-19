@@ -44,19 +44,20 @@ is_valid_session (SessionID) ->
 init_session (Req) ->
     {ok, SID} = dws_session_server:create_session (),
     lager:debug ("Generating a new session SID=~ts", [SID]),
+    NewReq = build_session (Req, SID, dws_session_server:get_session_ttl ()),
+    {NewReq, SID}.
+
+discard_session (Req) ->
+    build_session (Req, undefined, 0).
+
+build_session (Req, Value, TTL) ->
     Config = application:get_env (?APP, session, []),
     Opts = [
             {path,      <<"/">>},
             {secure,    idealib_conv:x2bool0 (proplists:get_value (secure_only, Config))},
-            {http_only, idealib_conv:x2bool0 (proplists:get_value (http_only,   Config))}
+            {http_only, idealib_conv:x2bool0 (proplists:get_value (http_only,   Config))},
+            {max_age,   TTL}
            ],
-    NewReq0 = cowboy_req:set_resp_cookie (atom_to_list (?SESSION_COOKIE), SID, Opts, Req),
-    NewReq1 = cowboy_req:set_meta (?REQ_META_KEY_SID, SID, NewReq0),
-    {NewReq1, SID}.
-
-discard_session (Req) ->
-    SessionCookie = list_to_binary ([ atom_to_list (?SESSION_COOKIE),
-                                      <<"=deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT; path=/">>]),
-    NewReq0 = cowboy_req:set_resp_header (<<"Set-Cookie">>, SessionCookie, Req),
-    cowboy_req:set_meta (?REQ_META_KEY_SID, undefined, NewReq0).
+    NewReq0 = cowboy_req:set_resp_cookie (atom_to_list (?SESSION_COOKIE), Value, Opts, Req),
+    cowboy_req:set_meta (?REQ_META_KEY_SID, Value, NewReq0).
 
