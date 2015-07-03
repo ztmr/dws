@@ -23,20 +23,27 @@ init (Req, _Opts) ->
     negotiate_subprotocol (Req, SessionID).
 
 websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) ->
-    SessionID = dws_session_handler:get_session (Req),
-    lager:debug ("Client [~ts] request: ~ts", [SessionID, RawMsg]),
-    dws_websocket_manager:update_transport (self ()),
-    %% It came from client, so let's catch a potential error
-    DecodedMsg = decode_message (RawMsg, State),
-    NewState0 = State#{
-                  request_counter => ReqCtr+1 rem ?MAX_MSG_CTR,
-                  transport_pid   => self ()
-                },
-    ReqInfo = make_cowboy_request_info (Req),
-    {Response, NewState} = process_request (SessionID, DecodedMsg, ReqInfo, NewState0),
-    ResponseEncoded = encode_message (Response, State),
-    lager:debug ("Client [~ts] response: ~ts", [SessionID, ResponseEncoded]),
-    {reply, {text, ResponseEncoded}, Req, NewState}.
+    try
+        SessionID = dws_session_handler:get_session (Req),
+        lager:debug ("Client [~ts] request: ~ts", [SessionID, RawMsg]),
+        dws_websocket_manager:update_transport (self ()),
+        %% It came from client, so let's catch a potential error
+        DecodedMsg = decode_message (RawMsg, State),
+        NewState0 = State#{
+                      request_counter => ReqCtr+1 rem ?MAX_MSG_CTR,
+                      transport_pid   => self ()
+                     },
+        ReqInfo = make_cowboy_request_info (Req),
+        {Response, NewState} = process_request (SessionID, DecodedMsg, ReqInfo, NewState0),
+        ResponseEncoded = encode_message (Response, NewState),
+        lager:debug ("Client [~ts] response: ~ts", [SessionID, ResponseEncoded]),
+        {reply, {text, ResponseEncoded}, Req, NewState}
+    catch
+        EClass:EReason ->
+            lager:error ("InternalError: ~w.~w: ~p~n", [EClass, EReason, erlang:get_stacktrace ()]),
+            ErrMsg = encode_message ({struct, [{error, internal_error}]}, State),
+            {reply, {text, ErrMsg}, Req, State}
+    end.
 
 websocket_info ({notify_client, Msg}, Req, State) ->
     EncodedMsg = encode_message (Msg, State),
