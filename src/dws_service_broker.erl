@@ -47,11 +47,12 @@ start_link (Args) ->
                        {Result::dws_response_object (),
                         NewChannelState::maps:map ()}.
 dispatch (SessionID, Req, ReqInfo, #{ request_counter := ReqCtr } = ChannelState) ->
+    Timeout = application:get_env (dws, service_broker_timeout, 10000),
     case parse_request (Req, ReqCtr) of
         {ok, ProtoVsn, MsgId, Service, Call, Args} ->
             {ok, Result, NewChannelState} =
                 gen_server:call (?SERVER, {call, SessionID, Service, Call,
-                                           Args, ReqInfo, ChannelState}),
+                                           Args, ReqInfo, ChannelState}, Timeout),
             Resp = format_response (ProtoVsn, MsgId, Result),
             {Resp, NewChannelState};
         {error, ProtoVsn, MsgId, Error} ->
