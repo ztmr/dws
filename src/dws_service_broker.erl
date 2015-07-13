@@ -56,7 +56,8 @@ dispatch (SessionID, Req, ReqInfo, #{ request_counter := ReqCtr } = ChannelState
             Resp = format_response (ProtoVsn, MsgId, Result),
             {Resp, NewChannelState};
         {error, ProtoVsn, MsgId, Error} ->
-            lager:debug ("Malformed client request: ~w", [{ProtoVsn, MsgId, Error}]),
+            lager:debug ([{session, SessionID}],
+                         "Malformed client request: ~w", [{ProtoVsn, MsgId, Error}]),
             Resp = format_response (ProtoVsn, MsgId, {error, [Error]}),
             {Resp, ChannelState}
     end.
@@ -101,7 +102,9 @@ handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Re
              _From, #{ handlers := Handlers,
                        services := Services } = State) ->
     ServiceState = get_service_state (Service, Services),
-    lager:debug ("Service Call Request ~p", [{SessionID, Service, Call, Args}]),
+    lager:debug ([{session, SessionID}, {service, Service}, {call, Call}],
+                 "Service Call Request ~p",
+                 [{SessionID, Service, Call, Args}]),
     case maps:find (Service, Handlers) of
         {ok, Mod} ->
             try
@@ -112,12 +115,15 @@ handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Re
                 {reply, {ok, Result, NewChannelState}, update_state (NewState)}
             catch
                 E0:E1 ->
-                    lager:error ("ImplementationError: ~w.~w: ~p~n", [E0, E1, erlang:get_stacktrace ()]),
-                    {reply, {ok, [{error, implementation_error}], ChannelState}, State}
+                    lager:error ([{session, SessionID}, {service, Service}, {call, Call}],
+                                 "ImplementationError: ~w.~w: ~p~n",
+                                 [E0, E1, erlang:get_stacktrace ()]),
+                    {reply, {ok, {error, implementation_error}, ChannelState}, State}
             end;
         error ->
-            lager:warning ("InvalidService: ~s~n", [Service]),
-            {reply, {ok, [{error, invalid_service}], ChannelState}, State}
+            lager:warning ([{session, SessionID}, {service, Service}, {call, Call}],
+                           "InvalidService: ~s~n", [Service]),
+            {reply, {ok, {error, invalid_service}, ChannelState}, State}
     end;
 handle_call ({get_service_handlers} = _Request,
              _From, #{ handlers := Handlers } = State) ->
