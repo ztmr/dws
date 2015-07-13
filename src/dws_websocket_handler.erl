@@ -36,6 +36,7 @@ websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) -
         ReqInfo = make_cowboy_request_info (Req),
         {Response, NewState} = process_request (SessionID, DecodedMsg, ReqInfo, NewState0),
         ResponseEncoded = encode_message (Response, NewState),
+        check_response_size (SessionID, ResponseEncoded, NewState0),
         lager:debug ("Client [~ts] response: ~ts", [SessionID, ResponseEncoded]),
         {reply, {text, ResponseEncoded}, Req, NewState}
     catch
@@ -146,4 +147,16 @@ make_cowboy_request_info (Req) ->
               (M, R) -> {M, cowboy_req:M (R)}
           end,
     maps:from_list ([ Get (Key, Req) || Key <- Keys ]).
+
+check_response_size (SessionID, Response, #{ request_counter := _ReqCtr }) ->
+    %% Warn about response messages exceeding 250k
+    WarnSize = application:get_env (dws, response_size_warning_barrier, 250 * 1024),
+    RealSize = iolist_size (Response),
+    case RealSize > WarnSize of
+        true  ->
+            lager:warning ("Client [~ts] response size ~b is larger than ~b barrier!",
+                           [SessionID, RealSize, WarnSize]);
+        false ->
+            ok
+    end.
 
