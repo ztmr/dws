@@ -56,7 +56,7 @@ dispatch (SessionID, Req, ReqInfo, #{ request_counter := ReqCtr } = ChannelState
             Resp = format_response (ProtoVsn, MsgId, Result),
             {Resp, NewChannelState};
         {error, ProtoVsn, MsgId, Error} ->
-            lager:debug ([{session, SessionID}],
+            lager:debug ([{session, SessionID}|ReqInfo],
                          "Malformed client request: ~w", [{ProtoVsn, MsgId, Error}]),
             Resp = format_response (ProtoVsn, MsgId, {error, [Error]}),
             {Resp, ChannelState}
@@ -102,7 +102,7 @@ handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Re
              _From, #{ handlers := Handlers,
                        services := Services } = State) ->
     ServiceState = get_service_state (Service, Services),
-    lager:debug ([{session, SessionID}, {service, Service}, {call, Call}],
+    lager:debug ([{session, SessionID}, {service, Service}, {call, Call}|ReqInfo],
                  "Service Call Request ~p",
                  [{SessionID, Service, Call, Args}]),
     case maps:find (Service, Handlers) of
@@ -115,13 +115,13 @@ handle_call ({call, SessionID, Service, Call, Args, ReqInfo, ChannelState} = _Re
                 {reply, {ok, Result, NewChannelState}, update_state (NewState)}
             catch
                 E0:E1 ->
-                    lager:error ([{session, SessionID}, {service, Service}, {call, Call}],
+                    lager:error ([{session, SessionID}, {service, Service}, {call, Call}|ReqInfo],
                                  "ImplementationError: ~w.~w: ~p~n",
                                  [E0, E1, erlang:get_stacktrace ()]),
                     {reply, {ok, {error, implementation_error}, ChannelState}, State}
             end;
         error ->
-            lager:warning ([{session, SessionID}, {service, Service}, {call, Call}],
+            lager:warning ([{session, SessionID}, {service, Service}, {call, Call}|ReqInfo],
                            "InvalidService: ~s~n", [Service]),
             {reply, {ok, {error, invalid_service}, ChannelState}, State}
     end;

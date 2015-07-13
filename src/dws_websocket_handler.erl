@@ -18,14 +18,18 @@
 
 init (Req, _Opts) ->
     SessionID = dws_session_handler:get_session (Req),
-    lager:debug ("Client [~ts] connected.", [SessionID]),
+    ReqInfo = make_cowboy_request_info (Req),
+    lager:debug ([{session, SessionID}|ReqInfo],
+                 "Client [~ts] connected.", [SessionID]),
     dws_websocket_manager:register_transport (SessionID, self ()),
-    negotiate_subprotocol (Req, SessionID).
+    negotiate_subprotocol (Req, SessionID, ReqInfo).
 
 websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) ->
+    SessionID = dws_session_handler:get_session (Req),
+    ReqInfo = make_cowboy_request_info (Req),
     try
-        SessionID = dws_session_handler:get_session (Req),
-        lager:debug ("Client [~ts] request: ~ts", [SessionID, RawMsg]),
+        lager:debug ([{session, SessionID}|ReqInfo],
+                     "Client [~ts] request: ~ts", [SessionID, RawMsg]),
         dws_websocket_manager:update_transport (self ()),
         %% It came from client, so let's catch a potential error
         DecodedMsg = decode_message (RawMsg, State),
@@ -33,15 +37,17 @@ websocket_handle ({text, RawMsg}, Req, #{ request_counter := ReqCtr } = State) -
                       request_counter => ReqCtr+1 rem ?MAX_MSG_CTR,
                       transport_pid   => self ()
                      },
-        ReqInfo = make_cowboy_request_info (Req),
         {Response, NewState} = process_request (SessionID, DecodedMsg, ReqInfo, NewState0),
         ResponseEncoded = encode_message (Response, NewState),
-        check_response_size (SessionID, ResponseEncoded, NewState0),
-        lager:debug ("Client [~ts] response: ~ts", [SessionID, ResponseEncoded]),
+        check_response_size (SessionID, ReqInfo, ResponseEncoded, NewState0),
+        lager:debug ([{session, SessionID}|ReqInfo],
+                     "Client [~ts] response: ~ts", [SessionID, ResponseEncoded]),
         {reply, {text, ResponseEncoded}, Req, NewState}
     catch
         EClass:EReason ->
-            lager:error ("InternalError: ~w.~w: ~p~n", [EClass, EReason, erlang:get_stacktrace ()]),
+            lager:error ([{session, SessionID}|ReqInfo],
+                         "InternalError: ~w.~w: ~p~n",
+                         [EClass, EReason, erlang:get_stacktrace ()]),
             ErrMsg = encode_message ({struct, [{error, internal_error}]}, State),
             {reply, {text, ErrMsg}, Req, State}
     end.
@@ -56,7 +62,8 @@ websocket_info (_Info, Req, State) ->
 
 terminate (_Reason, Req, #{ request_counter := ReqCtr } = _State) ->
     SessionID = dws_session_handler:get_session (Req),
-    lager:debug ("Client [~ts] disconnected after ~w requests.",
+    lager:debug ([{session, SessionID}],
+                 "Client [~ts] disconnected after ~w requests.",
                  [SessionID, ReqCtr]),
     dws_websocket_manager:discard_transport (self ()),
     dws_websocket_manager:wipe_inactive_transports (),
@@ -102,7 +109,7 @@ find_subprotocol_match ([H|T] = _ClientSubProtocols, ServerSubProtocols) ->
         false -> find_subprotocol_match (T, ServerSubProtocols)
     end.
 
-negotiate_subprotocol (Req, SessionID) ->
+negotiate_subprotocol (Req, SessionID, ReqInfo) ->
     case cowboy_req:parse_header (?HDR_WS_SUBPROTO, Req, undefined) of
         undefined ->
             {cowboy_websocket, Req, initialize_state ()};
@@ -111,11 +118,16 @@ negotiate_subprotocol (Req, SessionID) ->
             case find_subprotocol_match (ClientSubProtocols, ServerSubprotocols) of
                 {ok, SubProto} ->
                     Req2 = cowboy_req:set_resp_header (?HDR_WS_SUBPROTO, SubProto, Req),
-                    lager:info ("Client [~ts] negotiated subprotocol: ~p.", [SessionID, SubProto]),
+                    lager:info ([{session, SessionID}|ReqInfo],
+                                "Client [~ts] negotiated subprotocol: ~p.",
+                                [SessionID, SubProto]),
                     {cowboy_websocket, Req2, initialize_state (SubProto)};
                 {error, _} ->
-                    lager:error ("Client [~ts] subprotocol negotiation failed!", [SessionID]),
-                    lager:debug ("Client [~ts] offered subprotocols ~p while the server supports ~p.",
+                    lager:error ([{session, SessionID}|ReqInfo],
+                                 "Client [~ts] subprotocol negotiation failed!",
+                                 [SessionID]),
+                    lager:debug ([{session, SessionID}|ReqInfo],
+                                 "Client [~ts] offered subprotocols ~p while the server supports ~p.",
                                  [ClientSubProtocols, ServerSubprotocols]),
                     {shutdown, Req}
             end
@@ -148,13 +160,14 @@ make_cowboy_request_info (Req) ->
           end,
     maps:from_list ([ Get (Key, Req) || Key <- Keys ]).
 
-check_response_size (SessionID, Response, #{ request_counter := _ReqCtr }) ->
+check_response_size (SessionID, ReqInfo, Response, #{ request_counter := _ReqCtr }) ->
     %% Warn about response messages exceeding 250k
     WarnSize = application:get_env (dws, response_size_warning_barrier, 250 * 1024),
     RealSize = iolist_size (Response),
     case RealSize > WarnSize of
         true  ->
-            lager:warning ("Client [~ts] response size ~b is larger than ~b barrier!",
+            lager:warning ([{session, SessionID}|ReqInfo],
+                           "Client [~ts] response size ~b is larger than ~b barrier!",
                            [SessionID, RealSize, WarnSize]);
         false ->
             ok

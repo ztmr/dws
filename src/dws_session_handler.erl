@@ -43,7 +43,9 @@ is_valid_session (SessionID) ->
 
 init_session (Req) ->
     {ok, SID} = dws_session_server:create_session (),
-    lager:debug ("Generating a new session SID=~ts", [SID]),
+    lager:debug ([{session, SID}],
+                 "Generating a new session SID=~ts",
+                 [SID]),
     NewReq = build_session (Req, SID, dws_session_server:get_session_ttl ()),
     {NewReq, SID}.
 
