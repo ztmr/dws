@@ -9,22 +9,22 @@
 
 -record (?TABLE_SESSION, {
            id = <<>> :: binary (),
-           created = now (),
+           created = erlang:timestamp (),
            state = #{} :: map ()
           }).
 
 -record (?TABLE_SOCKET, {
            id = self () :: pid (),
            session_id = <<>> :: binary (),
-           created = now (),
-           last_used = now (),
+           created = erlang:timestamp (),
+           last_used = erlang:timestamp (),
            node = node ()
           }).
 
 -record (?TABLE_LOCK, {
            id = <<>> :: binary (),
            owner_pid = self () :: pid (),
-           created = now ()
+           created = erlang:timestamp ()
           }).
 
 -endif. %% DWS_SESSION_HRL

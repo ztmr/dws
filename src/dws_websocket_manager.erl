@@ -30,7 +30,7 @@ register_transport (SessionID, WsTransportPID) ->
 
 update_transport (WsTransportPID) ->
     {ok, SocketEntry} = find_transport (WsTransportPID),
-    NewSocketEntry = SocketEntry#?TABLE_SOCKET { last_used = now () },
+    NewSocketEntry = SocketEntry#?TABLE_SOCKET { last_used = erlang:timestamp () },
     Fun = fun () ->
                   mnesia:write (NewSocketEntry)
           end,
