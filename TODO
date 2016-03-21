@@ -1,2 +1,14 @@
+
 DWS {generate, fun X/2, InitialValue}
 via notify_client...
+
+send error back to the client if something crashed
+
+service_broker -> service_broker_pool
+...so that we can get:
+ - one or more service_brokers per client (not a global one)
+ - keep the service/channel state shared across them
+
+API documentation and validation:
+  https://github.com/eriksoe/valijate
+  https://github.com/nalundgaard/jsn
